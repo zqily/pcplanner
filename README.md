@@ -2,7 +2,6 @@
 
 ![GitHub language count](https://img.shields.io/github/languages/count/zqily/pcplanner)
 ![GitHub top language](https://img.shields.io/github/languages/top/zqily/pcplanner?style=flat&logo=python&logoColor=white&color=306998)
-![License](https://img.shields.io/github/license/zqily/pcplanner)
 
 An automated PC build planner that scrapes live prices from Tokopedia to keep your dream build up-to-date, saving hours of manual calculations.
 
