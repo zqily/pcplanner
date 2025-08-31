@@ -93,4 +93,4 @@ Distributed under the MIT License. See `LICENSE` file for more information.
 
 ## Contact
 
-zqil - [My Website](https://zqily.net) *(<- You can replace this with the correct link to your site)*
+zqil - [My Website](https://zqil.net)
