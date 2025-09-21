@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QVBoxLayout, QWidget, QHBoxLayout, QDialog,
     QLineEdit, QTextEdit, QFormLayout, QDialogButtonBox,
     QMessageBox, QLabel, QHeaderView, QAbstractItemView, QTabWidget,
-    QSpinBox, QProgressBar
+    QSpinBox, QProgressBar, QComboBox, QInputDialog
 )
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QObject
@@ -187,7 +187,8 @@ class PCPlanner(QMainWindow):
         super().__init__()
         self.setWindowTitle("PC Build Planner")
         self.setGeometry(100, 100, WINDOW_WIDTH, WINDOW_HEIGHT)
-        self.data = {"components": [], "peripherals": []}
+        self.data = {}
+        self.active_profile_name = ""
         self.category_keys = ["components", "peripherals"]
         self.is_refreshing = False
         self.worker = None
@@ -252,6 +253,19 @@ class PCPlanner(QMainWindow):
         self.grand_total_label.setStyleSheet("font-size: 20px; font-weight: bold; padding: 10px;")
         self.grand_total_label.setAlignment(Qt.AlignmentFlag.AlignRight)
 
+        # --- Profile Management ---
+        self.profile_combo = QComboBox()
+        self.new_profile_button = QPushButton("New")
+        self.rename_profile_button = QPushButton("Rename")
+        self.delete_profile_button = QPushButton("Delete")
+
+        profile_layout = QHBoxLayout()
+        profile_layout.addWidget(QLabel("Profile:"))
+        profile_layout.addWidget(self.profile_combo, 1)
+        profile_layout.addWidget(self.new_profile_button)
+        profile_layout.addWidget(self.rename_profile_button)
+        profile_layout.addWidget(self.delete_profile_button)
+
         button_layout = QHBoxLayout()
         button_layout.addWidget(self.add_button)
         button_layout.addWidget(self.edit_button)
@@ -262,6 +276,7 @@ class PCPlanner(QMainWindow):
         button_layout.addWidget(self.cancel_button)
 
         main_layout = QVBoxLayout()
+        main_layout.addLayout(profile_layout)
         main_layout.addLayout(button_layout)
         main_layout.addWidget(self.progress_bar)
         main_layout.addWidget(self.tab_widget)
@@ -277,7 +292,14 @@ class PCPlanner(QMainWindow):
         self.refresh_all_button.clicked.connect(self.refresh_all)
         self.refresh_selected_button.clicked.connect(self.refresh_selected)
         self.cancel_button.clicked.connect(self.cancel_refresh)
-
+        
+        # Profile connections
+        self.profile_combo.activated.connect(self.switch_profile)
+        self.new_profile_button.clicked.connect(self.add_profile)
+        self.rename_profile_button.clicked.connect(self.rename_profile)
+        self.delete_profile_button.clicked.connect(self.delete_profile)
+        
+        self.populate_profile_combo()
         self.populate_tables()
 
     def set_scraping_state(self, is_scraping):
@@ -293,26 +315,112 @@ class PCPlanner(QMainWindow):
         try:
             with open(DATA_FILE, 'r') as f:
                 loaded_data = json.load(f)
-                if isinstance(loaded_data, list):
-                    self.data = {"components": loaded_data, "peripherals": []}
-                else:
-                    self.data["components"] = loaded_data.get("components", [])
-                    self.data["peripherals"] = loaded_data.get("peripherals", [])
-                for items in self.data.values():
-                    for item in items:
-                        item.setdefault('id', uuid.uuid4().hex)
-                        item.setdefault('quantity', 1)
-                        item.setdefault('image_url', '')
-                        item.setdefault('price', 0)
         except (FileNotFoundError, json.JSONDecodeError):
-            self.data = {"components": [], "peripherals": []}
+            self.data = {"profiles": {"Default Profile": {"components": [], "peripherals": []}}, "active_profile": "Default Profile"}
+            self.active_profile_name = "Default Profile"
+            return
+
+        if "profiles" in loaded_data and "active_profile" in loaded_data:
+            self.data = loaded_data
+            self.active_profile_name = loaded_data['active_profile']
+            if self.active_profile_name not in self.data["profiles"]:
+                if self.data["profiles"]:
+                    self.active_profile_name = list(self.data["profiles"].keys())[0]
+                else:
+                    self.data["profiles"]["Default Profile"] = {"components": [], "peripherals": []}
+                    self.active_profile_name = "Default Profile"
+                self.data["active_profile"] = self.active_profile_name
+        else:
+            # Migrate from old format
+            components, peripherals = [], []
+            if isinstance(loaded_data, list):
+                components = loaded_data
+            elif isinstance(loaded_data, dict):
+                components = loaded_data.get("components", [])
+                peripherals = loaded_data.get("peripherals", [])
+            self.data = {
+                "profiles": {"Default Profile": {"components": components, "peripherals": peripherals}},
+                "active_profile": "Default Profile"
+            }
+            self.active_profile_name = "Default Profile"
+
+        # Sanitize data for all profiles
+        for profile_data in self.data["profiles"].values():
+            for items in profile_data.values():
+                for item in items:
+                    item.setdefault('id', uuid.uuid4().hex)
+                    item.setdefault('quantity', 1)
+                    item.setdefault('image_url', '')
+                    item.setdefault('price', 0)
 
     def save_data(self):
+        self.data['active_profile'] = self.active_profile_name
         with open(DATA_FILE, 'w') as f:
             json.dump(self.data, f, indent=4)
 
+    def get_active_profile_data(self):
+        return self.data['profiles'].get(self.active_profile_name, {"components": [], "peripherals": []})
+
+    def populate_profile_combo(self):
+        self.profile_combo.blockSignals(True)
+        self.profile_combo.clear()
+        profiles = sorted(self.data['profiles'].keys())
+        self.profile_combo.addItems(profiles)
+        if self.active_profile_name in profiles:
+            self.profile_combo.setCurrentText(self.active_profile_name)
+        self.profile_combo.blockSignals(False)
+        self.delete_profile_button.setEnabled(len(profiles) > 1)
+    
+    def switch_profile(self):
+        new_profile_name = self.profile_combo.currentText()
+        if new_profile_name and new_profile_name != self.active_profile_name:
+            self.active_profile_name = new_profile_name
+            self.save_data()
+            self.populate_tables()
+            
+    def add_profile(self):
+        text, ok = QInputDialog.getText(self, 'New Profile', 'Enter new profile name:')
+        if ok and text:
+            if text in self.data['profiles']:
+                QMessageBox.warning(self, "Error", "A profile with this name already exists.")
+                return
+            self.data['profiles'][text] = {"components": [], "peripherals": []}
+            self.active_profile_name = text
+            self.populate_profile_combo()
+            self.populate_tables()
+            self.save_data()
+
+    def rename_profile(self):
+        old_name = self.active_profile_name
+        if not old_name: return
+        text, ok = QInputDialog.getText(self, 'Rename Profile', 'Enter new name for profile:', text=old_name)
+        if ok and text and text != old_name:
+            if text in self.data['profiles']:
+                QMessageBox.warning(self, "Error", "A profile with this name already exists.")
+                return
+            self.data['profiles'][text] = self.data['profiles'].pop(old_name)
+            self.active_profile_name = text
+            self.populate_profile_combo()
+            self.save_data()
+
+    def delete_profile(self):
+        if len(self.data['profiles']) <= 1:
+            QMessageBox.warning(self, "Cannot Delete", "You cannot delete the last profile.")
+            return
+        profile_to_delete = self.active_profile_name
+        reply = QMessageBox.question(self, "Confirm Delete", f"Are you sure you want to delete the profile '{profile_to_delete}'?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                     QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            del self.data['profiles'][profile_to_delete]
+            self.active_profile_name = list(self.data['profiles'].keys())[0]
+            self.populate_profile_combo()
+            self.populate_tables()
+            self.save_data()
+            
     def populate_tables(self):
-        for category, items in self.data.items():
+        active_profile_data = self.get_active_profile_data()
+        for category, items in active_profile_data.items():
             table = self.tables.get(category)
             if not table: continue
             table.setRowCount(0)
@@ -367,7 +475,8 @@ class PCPlanner(QMainWindow):
 
     def update_totals(self):
         grand_total = 0
-        for category, items in self.data.items():
+        active_profile_data = self.get_active_profile_data()
+        for category, items in active_profile_data.items():
             category_total = sum(c.get('price', 0) * c.get('quantity', 1) for c in items)
             grand_total += category_total
             if category in self.total_labels:
@@ -397,13 +506,12 @@ class PCPlanner(QMainWindow):
                  return
             
             new_data['id'] = uuid.uuid4().hex
-            self.data[category_key].append(new_data)
+            self.get_active_profile_data()[category_key].append(new_data)
             self.save_data()
             self.populate_tables()
             
             new_item_info = {'item': new_data, 'category': category_key}
             self.start_refresh(items_to_process=[new_item_info])
-
 
     def edit_item(self):
         category_key, active_table = self.get_current_category_info()
@@ -412,7 +520,7 @@ class PCPlanner(QMainWindow):
             QMessageBox.warning(self, "Selection Error", "Please select an item to edit.")
             return
         row_index = selected_rows[0].row()
-        item_to_edit = self.data[category_key][row_index]
+        item_to_edit = self.get_active_profile_data()[category_key][row_index]
         dialog = ComponentDialog(component=item_to_edit, parent=self)
         if dialog.exec():
             updated_data = dialog.get_data()
@@ -426,13 +534,21 @@ class PCPlanner(QMainWindow):
         if not selected_rows:
             QMessageBox.warning(self, "Selection Error", "Please select an item to delete.")
             return
-        row_index = selected_rows[0].row()
-        item_name = self.data[category_key][row_index].get('name', 'this item')
-        reply = QMessageBox.question(self, "Confirm Delete", f"Are you sure you want to delete '{item_name}'?",
-                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                     QMessageBox.StandardButton.No)
+        
+        # Correctly handle multi-selection deletion from bottom to top
+        rows_to_delete = sorted([index.row() for index in selected_rows], reverse=True)
+        
+        if len(rows_to_delete) > 1:
+            reply = QMessageBox.question(self, "Confirm Delete", f"Are you sure you want to delete {len(rows_to_delete)} items?",
+                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+        else:
+            item_name = self.get_active_profile_data()[category_key][rows_to_delete[0]].get('name', 'this item')
+            reply = QMessageBox.question(self, "Confirm Delete", f"Are you sure you want to delete '{item_name}'?",
+                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+
         if reply == QMessageBox.StandardButton.Yes:
-            del self.data[category_key][row_index]
+            for row_index in rows_to_delete:
+                del self.get_active_profile_data()[category_key][row_index]
             self.save_data()
             self.populate_tables()
     
@@ -451,23 +567,28 @@ class PCPlanner(QMainWindow):
 
         items_to_process = []
         unique_row_indices = {index.row() for index in selected_rows}
-
+        
+        active_profile_data = self.get_active_profile_data()
         for row_index in sorted(list(unique_row_indices)):
-            item_to_refresh = self.data[category_key][row_index]
+            item_to_refresh = active_profile_data[category_key][row_index]
             items_to_process.append({'item': item_to_refresh, 'category': category_key})
         
         if items_to_process:
             self.start_refresh(items_to_process=items_to_process)
 
-
     def start_refresh(self, items_to_process=None):
         self.set_scraping_state(True)
-
-        items = items_to_process if items_to_process is not None else [
-            {'item': component, 'category': category}
-            for category, item_list in self.data.items()
-            for component in item_list
-        ]
+        
+        items = []
+        if items_to_process is not None:
+            items = items_to_process
+        else:
+            active_profile_data = self.get_active_profile_data()
+            items = [
+                {'item': component, 'category': category}
+                for category, item_list in active_profile_data.items()
+                for component in item_list
+            ]
 
         tasks_to_run = []
         for info in items:
@@ -522,7 +643,8 @@ class PCPlanner(QMainWindow):
 
     def on_item_scraped(self, item_id, category, updated_data, image_bytes):
         target_item = None
-        for item in self.data[category]:
+        active_profile_items = self.get_active_profile_data().get(category, [])
+        for item in active_profile_items:
             if item.get('id') == item_id:
                 target_item = item
                 break
