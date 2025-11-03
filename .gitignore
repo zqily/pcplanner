@@ -1,0 +1,7 @@
+image_cache
+.venv
+__pycache__/
+build
+dist
+data.json
+*.pyc
