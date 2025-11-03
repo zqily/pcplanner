@@ -79,21 +79,22 @@ def scrape_tokopedia(url, session=None):
         if script_tag:
             try:
                 json_content = script_tag.string
-                # Handle multiple JSON objects concatenated together by wrapping them in an array
-                json_data_list = json.loads(f'[{json_content.replace("}{", "},{")}]')
-                
-                product_data = next((item for item in json_data_list if item.get('@type') == 'Product'), None)
-                
-                if product_data:
-                    offers = product_data.get('offers', [])
-                    if isinstance(offers, list) and offers:
-                        price = clean_price(offers[0].get('price'))
-                    elif isinstance(offers, dict):  # Sometimes it's a dict, not a list
-                        price = clean_price(offers.get('price'))
+                if json_content:
+                    # Handle multiple JSON objects concatenated together by wrapping them in an array
+                    json_data_list = json.loads(f'[{json_content.replace("}{", "},{")}]')
+                    
+                    product_data = next((item for item in json_data_list if item.get('@type') == 'Product'), None)
+                    
+                    if product_data:
+                        offers = product_data.get('offers', [])
+                        if isinstance(offers, list) and offers:
+                            price = clean_price(offers[0].get('price'))
+                        elif isinstance(offers, dict):  # Sometimes it's a dict, not a list
+                            price = clean_price(offers.get('price'))
 
-                    images = product_data.get('image', [])
-                    if isinstance(images, list) and images:
-                        image_url = images[0]
+                        images = product_data.get('image', [])
+                        if isinstance(images, list) and images:
+                            image_url = images[0]
 
             except (json.JSONDecodeError, KeyError, IndexError, TypeError) as e:
                 logging.warning(f"Could not parse JSON-LD from {url}. Error: {e}. Proceeding to HTML fallback.")
