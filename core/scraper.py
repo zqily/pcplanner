@@ -48,12 +48,13 @@ def scrape_tokopedia(url: str, session: Optional[requests.Session] = None) -> Tu
         price: Optional[int] = None
         image_url: Optional[str] = None
 
-        # --- Method 1: JSON-LD ---
+        # --- Method 1: JSON-LD (Preferred) ---
         script_tag = soup.find('script', type='application/ld+json')
         if script_tag and script_tag.string:
             try:
-                # Fix concatenated JSON objects
+                # Fix concatenated JSON objects often found in Tokopedia source
                 json_content = script_tag.string
+                # Wrap in list if multiple objects exist in one script block
                 json_data_list = json.loads(f'[{json_content.replace("}{", "},{")}]')
                 
                 product_data = next((item for item in json_data_list if item.get('@type') == 'Product'), None)
@@ -67,6 +68,8 @@ def scrape_tokopedia(url: str, session: Optional[requests.Session] = None) -> Tu
                     images = product_data.get('image', [])
                     if isinstance(images, list) and images:
                         image_url = images[0]
+                    elif isinstance(images, str):
+                        image_url = images
             except Exception as e:
                 logging.warning(f"JSON-LD parsing failed for {url}: {e}")
 
@@ -79,13 +82,12 @@ def scrape_tokopedia(url: str, session: Optional[requests.Session] = None) -> Tu
         if image_url is None:
             el = soup.find('img', {'data-testid': 'PDPMainImage'})
             if el:
-                # Type safe extraction: Attributes can be str, list, or None
                 src_val = el.get('src')
                 if isinstance(src_val, str):
                     image_url = src_val
             
             if not image_url:
-                # Secondary fallback
+                # Secondary fallback container
                 container = soup.find('div', class_='css-1nchjne')
                 if container:
                     img_sub = container.find('img')

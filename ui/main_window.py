@@ -3,7 +3,7 @@ import uuid
 import json
 import webbrowser
 from functools import partial
-from typing import Dict, Optional, Any
+from typing import Dict, Optional
 
 from PyQt6.QtWidgets import (
     QMainWindow, QTableWidgetItem, QPushButton, QVBoxLayout, 
@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
     QAbstractItemView, QTabWidget, QProgressBar, QComboBox, 
     QInputDialog, QFileDialog
 )
-from PyQt6.QtGui import QPixmap, QCloseEvent
+from PyQt6.QtGui import QPixmap, QCloseEvent, QColor
 from PyQt6.QtCore import Qt, QThread
 
 from config import (
@@ -29,7 +29,7 @@ class PCPlanner(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(f"{APP_NAME} {APP_VERSION}")
-        self.setGeometry(100, 100, WINDOW_WIDTH, WINDOW_HEIGHT)
+        self.resize(WINDOW_WIDTH, WINDOW_HEIGHT)
         
         self.data_manager = DataManager()
         self.scrape_manager = ScrapeManager()
@@ -55,32 +55,24 @@ class PCPlanner(QMainWindow):
         
         for key in self.category_keys:
             table = DraggableTableWidget(0, 6)
-            table.setHorizontalHeaderLabels(["Image", "Name", "Price (IDR)", "Qty", "Link", "Specs"])
+            table.setHorizontalHeaderLabels(["Image", "Name", "Price History (IDR)", "Qty", "Link", "Specs"])
             table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
             table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
             
-            # --- HEADER CONFIGURATION ---
             h_header = table.horizontalHeader()
             if h_header:
-                # Name (1) and Specs (5) stretch to fill available space
                 h_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
                 h_header.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
-                
-                # Image (0) is fixed based on config
                 h_header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-                
-                # Compact columns for Price, Qty, and Link
-                h_header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
+                h_header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
                 h_header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
                 h_header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
             
-            # Set specific widths for the compact columns
             table.setColumnWidth(0, IMAGE_COLUMN_WIDTH)
-            table.setColumnWidth(2, 120) # Price
-            table.setColumnWidth(3, 60)  # Qty
-            table.setColumnWidth(4, 60)  # Link
+            table.setColumnWidth(2, 180) # Increased for Price History
+            table.setColumnWidth(3, 60)
+            table.setColumnWidth(4, 60)
             
-            # --- ROW HEIGHT CONFIGURATION ---
             v_header = table.verticalHeader()
             if v_header:
                 v_header.setDefaultSectionSize(IMAGE_ROW_HEIGHT)
@@ -88,7 +80,6 @@ class PCPlanner(QMainWindow):
             
             self.tables[key] = table
             
-            # --- TAB TOTAL LABEL STYLING ---
             self.total_labels[key] = QLabel("Total Price: Rp 0")
             self.total_labels[key].setStyleSheet("font-size: 16px; font-weight: bold;")
             
@@ -111,7 +102,6 @@ class PCPlanner(QMainWindow):
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         
-        # --- GRAND TOTAL LABEL STYLING ---
         self.grand_total_lbl = QLabel("Grand Total: Rp 0")
         self.grand_total_lbl.setStyleSheet("font-size: 20px; font-weight: bold; padding: 10px;")
 
@@ -171,7 +161,6 @@ class PCPlanner(QMainWindow):
 
         self.data_manager.profiles_changed.connect(self.handle_profiles_changed)
         
-        # Scrape Signals
         self.scrape_manager.scraping_started.connect(self._on_scraping_start)
         self.scrape_manager.progress_updated.connect(self.progress_bar.setValue)
         self.scrape_manager.item_scraped.connect(self._on_item_scraped)
@@ -180,6 +169,7 @@ class PCPlanner(QMainWindow):
 
         for cat, table in self.tables.items():
             table.rows_reordered.connect(partial(self.handle_row_reorder, cat))
+            table.doubleClicked.connect(self.edit_item)
 
     # --- Profile Logic ---
     def populate_profile_combo(self) -> None:
@@ -249,22 +239,18 @@ class PCPlanner(QMainWindow):
             
             for i, item in enumerate(items):
                 table.insertRow(i)
-                # --- FORCE ROW HEIGHT ---
-                # This ensures the row is tall enough for the image, regardless of header defaults
                 table.setRowHeight(i, IMAGE_ROW_HEIGHT)
-                
                 item_id = item.get('id')
                 if item_id: self.item_id_to_row_map[cat][item_id] = i
-                
                 self._update_row_visuals(table, i, item)
 
         self._update_totals()
 
     def _update_row_visuals(self, table: DraggableTableWidget, row: int, item: Dict, img_bytes: bytes = None) -> None:
-        # Image Label
+        # Image
         lbl = QLabel()
         lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl.setStyleSheet("border: 0px; padding: 0px;") # Clean style
+        lbl.setStyleSheet("border: 0px; padding: 0px;")
         
         pix = QPixmap()
         if img_bytes:
@@ -275,8 +261,6 @@ class PCPlanner(QMainWindow):
             if path.exists(): pix.load(str(path))
         
         if not pix.isNull():
-            # Scale-to-fit: KeepAspectRatio ensures it fits in the box without distortion.
-            # SmoothTransformation improves quality when scaling down.
             scaled_pix = pix.scaled(
                 IMAGE_COLUMN_WIDTH, 
                 IMAGE_ROW_HEIGHT, 
@@ -289,18 +273,63 @@ class PCPlanner(QMainWindow):
             
         table.setCellWidget(row, 0, lbl)
 
-        # Text Data
+        # Name
         name_item = QTableWidgetItem(item.get('name', 'N/A'))
         name_item.setData(ID_ROLE, item.get('id'))
         table.setItem(row, 1, name_item)
 
+        # Price & History (Color Logic)
         price = item.get('price', 0)
         qty = item.get('quantity', 1)
-        price_txt = f"{price:,.0f}" + (f"\n({price*qty:,.0f})" if qty > 1 else "")
+        history = item.get('price_history', [])
+        
+        # Calculate Delta
+        delta_str = ""
+        delta_color = None
+        
+        if len(history) >= 2:
+            prev_price = history[-2]['price']
+            diff = price - prev_price
+            if diff < 0:
+                delta_str = f"▼ Rp {abs(diff):,.0f}"
+                delta_color = QColor("green")
+            elif diff > 0:
+                delta_str = f"▲ Rp {abs(diff):,.0f}"
+                delta_color = QColor("red")
+        
+        # Format text
+        price_txt = f"Rp {price:,.0f}"
+        if delta_str:
+            price_txt += f"\n({delta_str})"
+        
+        if qty > 1:
+            price_txt += f"\nTotal: Rp {price*qty:,.0f}"
+
         price_item = QTableWidgetItem(price_txt)
         price_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        table.setItem(row, 2, price_item)
         
+        # Apply Color to the Delta text is complex in standard QTableWidgetItem.
+        # We set the item foreground color if there is a delta to highlight change, 
+        # or we could use a rich text QLabel. Let's use QLabel for Rich Text to get colors right.
+        
+        if delta_color:
+            color_hex = delta_color.name()
+            rich_text = f"""
+            <div style='text-align: right;'>
+                <b>Rp {price:,.0f}</b><br>
+                <span style='color: {color_hex};'>{delta_str}</span>
+                {f"<br><small>Total: Rp {price*qty:,.0f}</small>" if qty > 1 else ""}
+            </div>
+            """
+            price_lbl = QLabel(rich_text)
+            price_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            table.setCellWidget(row, 2, price_lbl)
+        else:
+            # Fallback for no delta (first scrape) or no change
+            table.removeCellWidget(row, 2) # Remove old label if exists
+            table.setItem(row, 2, price_item)
+
+        # Qty
         qty_item = QTableWidgetItem(str(qty))
         qty_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
         table.setItem(row, 3, qty_item)
@@ -312,6 +341,7 @@ class PCPlanner(QMainWindow):
         link_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         table.setCellWidget(row, 4, link_lbl)
 
+        # Specs
         table.setItem(row, 5, QTableWidgetItem(item.get('specs', '')))
 
     def _update_totals(self) -> None:
@@ -350,7 +380,12 @@ class PCPlanner(QMainWindow):
         if not rows: return
         idx = rows[0].row()
         item = self.data_manager.get_active_profile_data()[cat][idx]
-        dlg = ComponentDialog(item, self)
+        
+        # Define Reset Callback
+        def reset_history():
+            self.data_manager.reset_item_history(item['id'], cat)
+            
+        dlg = ComponentDialog(item, self, reset_callback=reset_history)
         if dlg.exec():
             self.data_manager.update_item_in_profile(cat, idx, dlg.get_data())
             self.populate_tables()
@@ -391,7 +426,7 @@ class PCPlanner(QMainWindow):
         for info in scope:
             link = info['item'].get('link', '')
             if "tokopedia.com" in link:
-                tasks.append({'id': info['item']['id'], 'category': info['category'], 'link': link})
+                tasks.append({'id': info['item']['id'], 'category': info['category'], 'link': link, 'name': info['item'].get('name')})
         
         self.scrape_manager.start(tasks)
 
@@ -411,9 +446,16 @@ class PCPlanner(QMainWindow):
         self.data_manager.save_data()
 
     def _on_item_scraped(self, iid: str, cat: str, data: Dict, img_bytes: bytes) -> None:
+        # Check if price changed or first scrape
+        if 'price' in data:
+            self.data_manager.update_item_history(iid, cat, data['price'])
+        
+        # Update other fields (image, etc)
         item, _ = self.data_manager.find_item(iid)
         if item:
-            item.update(data)
+            if 'image_url' in data:
+                item['image_url'] = data['image_url']
+            
             row = self.item_id_to_row_map.get(cat, {}).get(iid)
             if row is not None:
                 self._update_row_visuals(self.tables[cat], row, item, img_bytes)

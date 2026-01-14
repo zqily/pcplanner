@@ -1,6 +1,5 @@
 import hashlib
 import os
-import time
 import requests
 import concurrent.futures
 from typing import List, Dict, Optional
@@ -13,7 +12,7 @@ from core.scraper import scrape_tokopedia
 
 class ScrapeWorker(QObject):
     finished = pyqtSignal()
-    item_scraped = pyqtSignal(str, str, dict, object) # id, category, data, bytes
+    item_scraped = pyqtSignal(str, str, dict, object) # id, category, updates_dict, img_bytes
     error = pyqtSignal(str, str)
     scraping_started = pyqtSignal(int)
     progress_updated = pyqtSignal(int)
@@ -107,7 +106,7 @@ class ScrapeManager(QObject):
 
     def __init__(self, parent: Optional[QObject] = None):
         super().__init__(parent)
-        self.worker_thread: Optional[QThread] = None # Renamed to avoid 'thread' conflict
+        self.worker_thread: Optional[QThread] = None
         self.worker: Optional[ScrapeWorker] = None
 
     def is_running(self) -> bool:
@@ -134,7 +133,10 @@ class ScrapeManager(QObject):
             self.worker.stop()
 
     def _on_finished(self) -> None:
-        was_cancelled = not (self.worker and self.worker.is_running)
+        was_cancelled = False
+        if self.worker:
+            was_cancelled = not self.worker.is_running
+        
         self.scraping_finished.emit(was_cancelled)
         if self.worker_thread:
             self.worker_thread.quit()

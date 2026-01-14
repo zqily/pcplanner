@@ -5,3 +5,5 @@ build
 dist
 data.json
 *.pyc
+converter_gitignore.py
+versions/

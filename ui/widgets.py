@@ -16,9 +16,8 @@ class DraggableTableWidget(QTableWidget):
         self.setDragDropOverwriteMode(False)
 
     def dropEvent(self, event: Optional[QDropEvent]) -> None:
-        # Check against None for strict typing, though event should exist
         if not event or not event.isAccepted():
-            pass # Continue logic
+            pass
         else:
              if event.source() != self:
                  return
@@ -38,9 +37,6 @@ class DraggableTableWidget(QTableWidget):
             if dest_row < 0:
                 dest_row = self.rowCount() - 1
             
-            # Allow the default visual move
             super().dropEvent(event)
-            
-            # Emit signal to update underlying data model
             self.rows_reordered.emit(source_row, dest_row)
             event.accept()
