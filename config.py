@@ -7,7 +7,7 @@ from datetime import datetime
 
 # --- Application Metadata ---
 APP_NAME = "PC Planner"
-APP_VERSION = "v1..0"
+APP_VERSION = "v1.3.0"
 GITHUB_API_URL = "https://api.github.com/repos/zqily/pcplanner/releases/latest"
 
 # --- File Paths ---
