@@ -3,7 +3,6 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional
 
 from PyQt6.QtWidgets import QDialog, QVBoxLayout, QWidget, QMessageBox
-from PyQt6.QtCore import Qt
 
 import matplotlib
 import matplotlib.ticker

@@ -4,7 +4,6 @@ import datetime
 from typing import Dict, List, Optional, Tuple, Any
 from PyQt6.QtCore import QObject, pyqtSignal
 from sqlalchemy import select, delete, func
-from sqlalchemy.orm import Session
 
 from config import MAX_HISTORY_ENTRIES
 from core.database import SessionLocal, init_db
