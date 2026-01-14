@@ -7,3 +7,10 @@ data.json
 *.pyc
 converter_gitignore.py
 versions/
+*.sqlite
+*.bak
+*.tmp
+*.sqlite-shm
+*.sqlite-wal
+*.log
+logs/

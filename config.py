@@ -7,7 +7,7 @@ from datetime import datetime
 
 # --- Application Metadata ---
 APP_NAME = "PC Planner"
-APP_VERSION = "v1.3.0"
+APP_VERSION = "v1..0"
 GITHUB_API_URL = "https://api.github.com/repos/zqily/pcplanner/releases/latest"
 
 # --- File Paths ---
@@ -28,7 +28,7 @@ MAX_HISTORY_ENTRIES = 90
 
 # --- Network Constants ---
 HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:147.0) Gecko/20100101 Firefox/147.0',
     'Accept-Language': 'en-US,en;q=0.9',
 }
 MAX_WORKERS = 8
