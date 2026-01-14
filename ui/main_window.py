@@ -2,8 +2,9 @@ import hashlib
 import uuid
 import json
 import webbrowser
+import logging
 from functools import partial
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 
 from PyQt6.QtWidgets import (
     QMainWindow, QTableWidgetItem, QPushButton, QVBoxLayout, 
@@ -25,6 +26,7 @@ from ui.dialogs import ComponentDialog
 from ui.graph_window import PriceHistoryWindow
 
 ID_ROLE = Qt.ItemDataRole.UserRole + 1
+logger = logging.getLogger(__name__)
 
 class PCPlanner(QMainWindow):
     def __init__(self):
@@ -34,6 +36,9 @@ class PCPlanner(QMainWindow):
         
         self.data_manager = DataManager()
         self.scrape_manager = ScrapeManager()
+        
+        # Error accumulation list for batch scraping
+        self.scrape_errors: List[str] = []
         
         self.category_keys = ["components", "peripherals"]
         self.item_id_to_row_map: Dict[str, Dict[str, int]] = {}
@@ -95,7 +100,7 @@ class PCPlanner(QMainWindow):
         self.add_btn = QPushButton("Add Item")
         self.edit_btn = QPushButton("Edit Item")
         self.del_btn = QPushButton("Delete Item")
-        self.graph_btn = QPushButton("Show History")  # New Button
+        self.graph_btn = QPushButton("Show History")
         self.refresh_btn = QPushButton("Refresh All")
         self.refresh_sel_btn = QPushButton("Refresh Selected")
         self.cancel_btn = QPushButton("Cancel Refresh")
@@ -130,7 +135,7 @@ class PCPlanner(QMainWindow):
         btn_layout.addWidget(self.add_btn)
         btn_layout.addWidget(self.edit_btn)
         btn_layout.addWidget(self.del_btn)
-        btn_layout.addWidget(self.graph_btn) # Added here
+        btn_layout.addWidget(self.graph_btn) 
         btn_layout.addStretch()
         btn_layout.addWidget(self.refresh_sel_btn)
         btn_layout.addWidget(self.refresh_btn)
@@ -151,7 +156,7 @@ class PCPlanner(QMainWindow):
         self.add_btn.clicked.connect(self.add_item)
         self.edit_btn.clicked.connect(self.edit_item)
         self.del_btn.clicked.connect(self.delete_item)
-        self.graph_btn.clicked.connect(self.show_item_history) # Connect new button
+        self.graph_btn.clicked.connect(self.show_item_history)
         self.refresh_btn.clicked.connect(self.refresh_all)
         self.refresh_sel_btn.clicked.connect(self.refresh_selected)
         self.cancel_btn.clicked.connect(self.scrape_manager.cancel)
@@ -168,12 +173,11 @@ class PCPlanner(QMainWindow):
         self.scrape_manager.scraping_started.connect(self._on_scraping_start)
         self.scrape_manager.progress_updated.connect(self.progress_bar.setValue)
         self.scrape_manager.item_scraped.connect(self._on_item_scraped)
-        self.scrape_manager.error_occurred.connect(lambda n, m: print(f"Error {n}: {m}")) 
+        self.scrape_manager.error_occurred.connect(self._on_scrape_error)
         self.scrape_manager.scraping_finished.connect(self._on_scraping_end)
 
         for cat, table in self.tables.items():
             table.rows_reordered.connect(partial(self.handle_row_reorder, cat))
-            # Changed from edit_item to show_item_history for double click
             table.doubleClicked.connect(self.show_item_history)
 
     # --- Profile Logic ---
@@ -223,6 +227,7 @@ class PCPlanner(QMainWindow):
                 self.data_manager.switch_profile(name)
                 self.handle_profiles_changed()
         except Exception as e:
+            logger.error(f"Import failed: {e}", exc_info=True)
             QMessageBox.critical(self, "Error", str(e))
 
     def export_profile(self):
@@ -251,7 +256,7 @@ class PCPlanner(QMainWindow):
 
         self._update_totals()
 
-    def _update_row_visuals(self, table: DraggableTableWidget, row: int, item: Dict, img_bytes: bytes = None) -> None:
+    def _update_row_visuals(self, table: DraggableTableWidget, row: int, item: Dict, img_bytes: Optional[bytes] = None) -> None:
         # Image
         lbl = QLabel()
         lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -366,7 +371,7 @@ class PCPlanner(QMainWindow):
             self.data_manager.add_item_to_profile(cat, data)
             self.populate_tables()
             if "tokopedia.com" in data['link']:
-                self.scrape_manager.start([{'id': data['id'], 'category': cat, 'link': data['link']}])
+                self.scrape_manager.start([{'id': data['id'], 'category': cat, 'link': data['link'], 'name': data['name']}])
 
     def edit_item(self) -> None:
         cat = self.category_keys[self.tab_widget.currentIndex()]
@@ -404,7 +409,6 @@ class PCPlanner(QMainWindow):
         sel_model = table.selectionModel()
         
         if not sel_model or not sel_model.hasSelection():
-            # If triggered by button with no selection
             return
 
         rows = sel_model.selectedRows()
@@ -414,8 +418,6 @@ class PCPlanner(QMainWindow):
         item = self.data_manager.get_active_profile_data()[cat][idx]
         
         history = item.get('price_history', [])
-        
-        # Open the Graph Window
         graph_win = PriceHistoryWindow(item.get('name', 'Unknown Item'), history, parent=self)
         graph_win.exec()
 
@@ -435,6 +437,10 @@ class PCPlanner(QMainWindow):
 
     def _start_scrape(self, specific_items=None) -> None:
         if self.scrape_manager.is_running(): return
+        
+        # Reset error list
+        self.scrape_errors = []
+        
         tasks = []
         scope = specific_items or [
             {'item': i, 'category': c} 
@@ -444,8 +450,17 @@ class PCPlanner(QMainWindow):
         for info in scope:
             link = info['item'].get('link', '')
             if "tokopedia.com" in link:
-                tasks.append({'id': info['item']['id'], 'category': info['category'], 'link': link, 'name': info['item'].get('name')})
+                tasks.append({
+                    'id': info['item']['id'], 
+                    'category': info['category'], 
+                    'link': link, 
+                    'name': info['item'].get('name', 'Unknown')
+                })
         
+        if not tasks:
+            QMessageBox.information(self, "Info", "No valid Tokopedia links found to refresh.")
+            return
+
         self.scrape_manager.start(tasks)
 
     def _on_scraping_start(self, total: int) -> None:
@@ -456,12 +471,35 @@ class PCPlanner(QMainWindow):
         self.progress_bar.setMaximum(total)
         self.progress_bar.setFormat(f"Scraping... %p% ({total} items)")
 
+    def _on_scrape_error(self, item_name: str, message: str) -> None:
+        """Collects errors to show a summary, avoiding popup spam."""
+        formatted_err = f"• {item_name}: {message}"
+        self.scrape_errors.append(formatted_err)
+
     def _on_scraping_end(self, cancelled: bool) -> None:
         self.refresh_btn.setVisible(True)
         self.refresh_sel_btn.setVisible(True)
         self.cancel_btn.setVisible(False)
         self.progress_bar.setVisible(False)
         self.data_manager.save_data()
+
+        if self.scrape_errors:
+            self._show_error_report()
+
+    def _show_error_report(self) -> None:
+        """Displays a scrollable dialog of all errors occurred during scraping."""
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Icon.Warning)
+        msg.setWindowTitle("Scraping Completed with Errors")
+        msg.setText(f"Encountered issues with {len(self.scrape_errors)} items.\nFull details are in the logs (logs/latest.log).")
+        
+        # Join errors for detail view
+        details = "\n".join(self.scrape_errors)
+        msg.setDetailedText(details)
+        
+        # Adjust size for readability
+        msg.setStyleSheet("QMessageBox { width: 600px; }")
+        msg.exec()
 
     def _on_item_scraped(self, iid: str, cat: str, data: Dict, img_bytes: bytes) -> None:
         if 'price' in data:
@@ -486,10 +524,11 @@ class PCPlanner(QMainWindow):
         self.update_thread.started.connect(self.u_worker.run)
         self.update_thread.start()
 
-    def closeEvent(self, event: Optional[QCloseEvent]) -> None:
+    def closeEvent(self, a0: Optional[QCloseEvent]) -> None:
         if self.scrape_manager.is_running():
             self.scrape_manager.cancel()
             if self.scrape_manager.worker_thread:
                 self.scrape_manager.worker_thread.wait(1000)
-        if event:
-            event.accept()
+        logger.info("Application closed by user.")
+        if a0:
+            a0.accept()

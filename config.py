@@ -1,6 +1,9 @@
 import os
+import sys
 import logging
+import shutil
 from pathlib import Path
+from datetime import datetime
 
 # --- Application Metadata ---
 APP_NAME = "PC Planner"
@@ -11,6 +14,7 @@ GITHUB_API_URL = "https://api.github.com/repos/zqily/pcplanner/releases/latest"
 BASE_DIR = Path(os.getcwd())
 DATA_FILE = BASE_DIR / 'data.json'
 CACHE_DIR = BASE_DIR / 'image_cache'
+LOGS_DIR = BASE_DIR / 'logs'
 
 # --- UI Constants ---
 WINDOW_WIDTH = 1280
@@ -29,13 +33,60 @@ HEADERS = {
 MAX_WORKERS = 8
 NETWORK_TIMEOUT = 15
 
-# --- Logging Setup ---
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler()]
-)
-
 def ensure_dirs() -> None:
     """Ensures necessary directories exist."""
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+
+def setup_logging() -> None:
+    """
+    Sets up a Minecraft-style logging system.
+    1. Rotates 'latest.log' to 'YYYY-MM-DD-n.log'.
+    2. Configures logging to write to 'latest.log' and Console.
+    """
+    ensure_dirs()
+    
+    log_file = LOGS_DIR / "latest.log"
+    
+    # --- Log Rotation Logic ---
+    if log_file.exists():
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        index = 1
+        
+        # Find the next available index for today's logs
+        while True:
+            archive_name = f"{today_str}-{index}.log"
+            archive_path = LOGS_DIR / archive_name
+            if not archive_path.exists():
+                break
+            index += 1
+            
+        try:
+            shutil.move(str(log_file), str(LOGS_DIR / archive_name))
+        except Exception as e:
+            print(f"Failed to rotate logs: {e}")
+
+    # --- Logger Configuration ---
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+    
+    # 1. File Handler (Detailed, includes file/line info)
+    file_formatter = logging.Formatter(
+        '[%(asctime)s] [%(threadName)s/%(levelname)s] [%(filename)s:%(lineno)d]: %(message)s',
+        datefmt='%H:%M:%S'
+    )
+    file_handler = logging.FileHandler(log_file, encoding='utf-8')
+    file_handler.setFormatter(file_formatter)
+    root_logger.addHandler(file_handler)
+    
+    # 2. Console Handler (Cleaner output)
+    console_formatter = logging.Formatter(
+        '[%(asctime)s] [%(levelname)s]: %(message)s',
+        datefmt='%H:%M:%S'
+    )
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(console_formatter)
+    root_logger.addHandler(console_handler)
+
+    logging.info("Logging initialized. Previous log rotated.")
+    logging.info(f"{APP_NAME} {APP_VERSION} starting up...")

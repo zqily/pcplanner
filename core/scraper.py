@@ -7,6 +7,8 @@ from typing import Optional, Tuple, Any
 from bs4 import BeautifulSoup
 from config import HEADERS, NETWORK_TIMEOUT
 
+logger = logging.getLogger(__name__)
+
 def clean_price(price_text: Any) -> int:
     """Removes 'Rp', dots, and converts to an integer."""
     if not price_text:
@@ -20,7 +22,7 @@ def scrape_tokopedia(url: str, session: Optional[requests.Session] = None) -> Tu
     Returns: (price_int, image_url_str) or (None, None) on failure.
     """
     if "tokopedia.com" not in url:
-        logging.error(f"Invalid Tokopedia URL: {url}")
+        logger.error(f"Invalid Tokopedia URL provided: {url}")
         return None, None
 
     requester = session if session else requests
@@ -34,10 +36,11 @@ def scrape_tokopedia(url: str, session: Optional[requests.Session] = None) -> Tu
             response.raise_for_status()
             break
         except requests.exceptions.RequestException as e:
-            logging.warning(f"Attempt {attempt + 1}/{max_retries} failed for {url}: {e}")
+            logger.warning(f"Connection attempt {attempt + 1}/{max_retries} failed for {url}: {e}")
             if attempt < max_retries - 1:
                 time.sleep(retry_delay)
             else:
+                logger.error(f"All connection retries failed for {url}")
                 return None, None
 
     if not response:
@@ -71,7 +74,7 @@ def scrape_tokopedia(url: str, session: Optional[requests.Session] = None) -> Tu
                     elif isinstance(images, str):
                         image_url = images
             except Exception as e:
-                logging.warning(f"JSON-LD parsing failed for {url}: {e}")
+                logger.warning(f"JSON-LD parsing failed for {url}: {e}. Falling back to HTML.")
 
         # --- Method 2: HTML Fallback ---
         if price is None:
@@ -95,9 +98,13 @@ def scrape_tokopedia(url: str, session: Optional[requests.Session] = None) -> Tu
                         src_sub_val = img_sub.get('src')
                         if isinstance(src_sub_val, str):
                             image_url = src_sub_val
+        
+        if price is None and image_url is None:
+            logger.warning(f"Scraper returned no data for {url}. Page structure might have changed.")
 
         return price, image_url
 
     except Exception as e:
-        logging.error(f"Unexpected error parsing {url}: {e}", exc_info=True)
+        # Critical: Log the traceback so we know exactly what broke in the parsing logic
+        logger.error(f"Unexpected exception during parsing of {url}", exc_info=True)
         return None, None
