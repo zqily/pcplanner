@@ -2,3 +2,4 @@ beautifulsoup4
 pyqt6
 requests
 matplotlib
+SQLAlchemy

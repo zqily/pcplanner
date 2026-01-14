@@ -1,16 +1,16 @@
 import sys
 import traceback
+import logging
 from PyQt6.QtWidgets import QApplication
 from config import ensure_dirs, setup_logging
+from core.migrator import Migrator
 from ui.main_window import PCPlanner
-import logging
 
 def excepthook(exc_type, exc_value, exc_tb):
     """Global exception handler to catch crashes."""
     tb = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
     logging.critical("Uncaught exception:\n" + tb)
     print("Critical Error! Check logs for details.")
-    # Optional: Show a crude native messagebox if Qt is still alive
     sys.__excepthook__(exc_type, exc_value, exc_tb)
 
 def main():
@@ -19,6 +19,13 @@ def main():
     ensure_dirs()
     setup_logging()
     
+    # Run data migration if needed
+    try:
+        Migrator.run_migration()
+    except Exception as e:
+        logging.critical(f"Migration failed during startup: {e}", exc_info=True)
+        # We continue startup; DataManager will initialize an empty DB if needed.
+
     try:
         app = QApplication(sys.argv)
         window = PCPlanner()

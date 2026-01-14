@@ -12,7 +12,8 @@ GITHUB_API_URL = "https://api.github.com/repos/zqily/pcplanner/releases/latest"
 
 # --- File Paths ---
 BASE_DIR = Path(os.getcwd())
-DATA_FILE = BASE_DIR / 'data.json'
+DATA_FILE = BASE_DIR / 'data.json'  # Kept for migration check
+DB_FILE = BASE_DIR / 'data.sqlite'
 CACHE_DIR = BASE_DIR / 'image_cache'
 LOGS_DIR = BASE_DIR / 'logs'
 

@@ -219,16 +219,32 @@ class PCPlanner(QMainWindow):
     def import_profile(self):
         fpath, _ = QFileDialog.getOpenFileName(self, "Import", "", "JSON (*.json)")
         if not fpath: return
+        
         try:
-            with open(fpath, 'r') as f: data = json.load(f)
-            name = data.get('profile_name', 'Imported')
-            if self.data_manager.add_profile(name)[0]:
-                self.data_manager.data['profiles'][name] = data.get('data', {})
-                self.data_manager.switch_profile(name)
-                self.handle_profiles_changed()
+            with open(fpath, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            # Identify profile name and content
+            if "profile_name" in data and "data" in data:
+                # Format: Single profile export
+                p_name = data["profile_name"]
+                p_data = data["data"]
+            else:
+                # Format: Legacy data or direct dict
+                p_name = "Imported Profile"
+                p_data = data
+
+            # Use DataManager to safely import into SQL
+            success, msg = self.data_manager.import_profile_data(p_name, p_data)
+            
+            if success:
+                QMessageBox.information(self, "Success", msg)
+            else:
+                QMessageBox.critical(self, "Import Failed", msg)
+                
         except Exception as e:
             logger.error(f"Import failed: {e}", exc_info=True)
-            QMessageBox.critical(self, "Error", str(e))
+            QMessageBox.critical(self, "Error", f"Invalid file or corrupted data.\n{str(e)}")
 
     def export_profile(self):
         name = self.data_manager.active_profile_name
@@ -288,16 +304,15 @@ class PCPlanner(QMainWindow):
         name_item.setData(ID_ROLE, item.get('id'))
         table.setItem(row, 1, name_item)
 
-        # Price & History
+        # Price & Delta
         price = item.get('price', 0)
+        prev_price = item.get('previous_price', 0)
         qty = item.get('quantity', 1)
-        history = item.get('price_history', [])
         
         delta_str = ""
         delta_color = None
         
-        if len(history) >= 2:
-            prev_price = history[-2]['price']
+        if prev_price > 0 and price != prev_price:
             diff = price - prev_price
             if diff < 0:
                 delta_str = f"▼ Rp {abs(diff):,.0f}"
@@ -357,9 +372,15 @@ class PCPlanner(QMainWindow):
         self.grand_total_lbl.setText(f"Grand Total: Rp {grand:,.0f}")
 
     def handle_row_reorder(self, category: str, src: int, dst: int) -> None:
-        items = self.data_manager.get_active_profile_data()[category]
-        items.insert(dst, items.pop(src))
-        self.data_manager.save_data()
+        """
+        Handles the event when a user drags a row to a new position.
+        Updates the database 'order_index' and refreshes the table to stay in sync.
+        """
+        self.data_manager.reorder_items(category, src, dst)
+        # We need to refresh the table to ensure internal row maps match the DB
+        # However, a full refresh might interrupt the visual drag.
+        # Since DataManager reorders the DB to match the UI drop, we are technically in sync.
+        # But to be safe and ensure IDs map correctly next time, we re-populate.
         self.populate_tables()
 
     def add_item(self) -> None:
@@ -389,7 +410,10 @@ class PCPlanner(QMainWindow):
             
         dlg = ComponentDialog(item, self, reset_callback=reset_history)
         if dlg.exec():
-            self.data_manager.update_item_in_profile(cat, idx, dlg.get_data())
+            # Update: pass item ID explicitly to ensure DB consistency
+            new_data = dlg.get_data()
+            new_data['id'] = item['id']
+            self.data_manager.update_item_in_profile(cat, idx, new_data)
             self.populate_tables()
 
     def delete_item(self) -> None:
@@ -417,7 +441,9 @@ class PCPlanner(QMainWindow):
         idx = rows[0].row()
         item = self.data_manager.get_active_profile_data()[cat][idx]
         
-        history = item.get('price_history', [])
+        # Fetch history via SQL lazy load
+        history = self.data_manager.get_item_history(item['id'])
+        
         graph_win = PriceHistoryWindow(item.get('name', 'Unknown Item'), history, parent=self)
         graph_win.exec()
 
@@ -502,14 +528,27 @@ class PCPlanner(QMainWindow):
         msg.exec()
 
     def _on_item_scraped(self, iid: str, cat: str, data: Dict, img_bytes: bytes) -> None:
+        """
+        Callback when an item is successfully scraped.
+        Updates DB via DataManager and refreshes UI row safely.
+        """
+        # 1. Update Price History
         if 'price' in data:
             self.data_manager.update_item_history(iid, cat, data['price'])
         
+        # 2. Update Image URL if needed
+        if 'image_url' in data:
+            # We explicitly pass the ID to update the correct item regardless of order
+            update_payload = {'id': iid, 'image_url': data['image_url']}
+            self.data_manager.update_item_in_profile(cat, 0, update_payload)
+
+        # 3. Refresh Visuals
+        # We need to fetch the fresh item state from DB to get aggregated history data
         item, _ = self.data_manager.find_item(iid)
+        
         if item:
-            if 'image_url' in data:
-                item['image_url'] = data['image_url']
-            
+            # We use the ID map because rows might have shifted if user dragged during scrape
+            # (though normally we disable reorder during updates, this is safer)
             row = self.item_id_to_row_map.get(cat, {}).get(iid)
             if row is not None:
                 self._update_row_visuals(self.tables[cat], row, item, img_bytes)
