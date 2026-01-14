@@ -22,6 +22,7 @@ from core.data_manager import DataManager
 from services.workers import ScrapeManager, UpdateCheckWorker
 from ui.widgets import DraggableTableWidget
 from ui.dialogs import ComponentDialog
+from ui.graph_window import PriceHistoryWindow
 
 ID_ROLE = Qt.ItemDataRole.UserRole + 1
 
@@ -94,6 +95,7 @@ class PCPlanner(QMainWindow):
         self.add_btn = QPushButton("Add Item")
         self.edit_btn = QPushButton("Edit Item")
         self.del_btn = QPushButton("Delete Item")
+        self.graph_btn = QPushButton("Show History")  # New Button
         self.refresh_btn = QPushButton("Refresh All")
         self.refresh_sel_btn = QPushButton("Refresh Selected")
         self.cancel_btn = QPushButton("Cancel Refresh")
@@ -128,6 +130,7 @@ class PCPlanner(QMainWindow):
         btn_layout.addWidget(self.add_btn)
         btn_layout.addWidget(self.edit_btn)
         btn_layout.addWidget(self.del_btn)
+        btn_layout.addWidget(self.graph_btn) # Added here
         btn_layout.addStretch()
         btn_layout.addWidget(self.refresh_sel_btn)
         btn_layout.addWidget(self.refresh_btn)
@@ -148,6 +151,7 @@ class PCPlanner(QMainWindow):
         self.add_btn.clicked.connect(self.add_item)
         self.edit_btn.clicked.connect(self.edit_item)
         self.del_btn.clicked.connect(self.delete_item)
+        self.graph_btn.clicked.connect(self.show_item_history) # Connect new button
         self.refresh_btn.clicked.connect(self.refresh_all)
         self.refresh_sel_btn.clicked.connect(self.refresh_selected)
         self.cancel_btn.clicked.connect(self.scrape_manager.cancel)
@@ -169,7 +173,8 @@ class PCPlanner(QMainWindow):
 
         for cat, table in self.tables.items():
             table.rows_reordered.connect(partial(self.handle_row_reorder, cat))
-            table.doubleClicked.connect(self.edit_item)
+            # Changed from edit_item to show_item_history for double click
+            table.doubleClicked.connect(self.show_item_history)
 
     # --- Profile Logic ---
     def populate_profile_combo(self) -> None:
@@ -278,12 +283,11 @@ class PCPlanner(QMainWindow):
         name_item.setData(ID_ROLE, item.get('id'))
         table.setItem(row, 1, name_item)
 
-        # Price & History (Color Logic)
+        # Price & History
         price = item.get('price', 0)
         qty = item.get('quantity', 1)
         history = item.get('price_history', [])
         
-        # Calculate Delta
         delta_str = ""
         delta_color = None
         
@@ -297,7 +301,6 @@ class PCPlanner(QMainWindow):
                 delta_str = f"▲ Rp {abs(diff):,.0f}"
                 delta_color = QColor("red")
         
-        # Format text
         price_txt = f"Rp {price:,.0f}"
         if delta_str:
             price_txt += f"\n({delta_str})"
@@ -307,10 +310,6 @@ class PCPlanner(QMainWindow):
 
         price_item = QTableWidgetItem(price_txt)
         price_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        
-        # Apply Color to the Delta text is complex in standard QTableWidgetItem.
-        # We set the item foreground color if there is a delta to highlight change, 
-        # or we could use a rich text QLabel. Let's use QLabel for Rich Text to get colors right.
         
         if delta_color:
             color_hex = delta_color.name()
@@ -325,8 +324,7 @@ class PCPlanner(QMainWindow):
             price_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             table.setCellWidget(row, 2, price_lbl)
         else:
-            # Fallback for no delta (first scrape) or no change
-            table.removeCellWidget(row, 2) # Remove old label if exists
+            table.removeCellWidget(row, 2)
             table.setItem(row, 2, price_item)
 
         # Qty
@@ -381,7 +379,6 @@ class PCPlanner(QMainWindow):
         idx = rows[0].row()
         item = self.data_manager.get_active_profile_data()[cat][idx]
         
-        # Define Reset Callback
         def reset_history():
             self.data_manager.reset_item_history(item['id'], cat)
             
@@ -400,6 +397,27 @@ class PCPlanner(QMainWindow):
         if rows and QMessageBox.question(self, "Delete", "Confirm delete?") == QMessageBox.StandardButton.Yes:
             self.data_manager.delete_items_from_profile(cat, rows)
             self.populate_tables()
+
+    def show_item_history(self) -> None:
+        cat = self.category_keys[self.tab_widget.currentIndex()]
+        table = self.tables[cat]
+        sel_model = table.selectionModel()
+        
+        if not sel_model or not sel_model.hasSelection():
+            # If triggered by button with no selection
+            return
+
+        rows = sel_model.selectedRows()
+        if not rows: return
+        
+        idx = rows[0].row()
+        item = self.data_manager.get_active_profile_data()[cat][idx]
+        
+        history = item.get('price_history', [])
+        
+        # Open the Graph Window
+        graph_win = PriceHistoryWindow(item.get('name', 'Unknown Item'), history, parent=self)
+        graph_win.exec()
 
     # --- Scraping & Updates ---
     def refresh_all(self) -> None:
@@ -446,11 +464,9 @@ class PCPlanner(QMainWindow):
         self.data_manager.save_data()
 
     def _on_item_scraped(self, iid: str, cat: str, data: Dict, img_bytes: bytes) -> None:
-        # Check if price changed or first scrape
         if 'price' in data:
             self.data_manager.update_item_history(iid, cat, data['price'])
         
-        # Update other fields (image, etc)
         item, _ = self.data_manager.find_item(iid)
         if item:
             if 'image_url' in data:

@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (
     QDialog, QLineEdit, QTextEdit, QSpinBox, QFormLayout, 
-    QDialogButtonBox, QVBoxLayout, QPushButton, QMessageBox, QHBoxLayout
+    QDialogButtonBox, QVBoxLayout, QPushButton, QMessageBox
 )
 from typing import Dict, Optional, Any, Callable
 
