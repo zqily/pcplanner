@@ -3,6 +3,7 @@ import sys
 import json
 import logging
 import shutil
+import tempfile
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any
@@ -16,7 +17,6 @@ LOGS_DIR = BASE_DIR / 'logs'
 CONFIG_FILE = BASE_DIR / 'config.json'
 
 # --- Default Configuration ---
-# This defines the structure and default values if config.json is missing or broken.
 DEFAULT_CONFIG = {
     "app_info": {
         "name": "PC Planner",
@@ -40,10 +40,7 @@ DEFAULT_CONFIG = {
 }
 
 def deep_update(base_dict: Dict, update_dict: Dict) -> Dict:
-    """
-    Recursively updates the base dictionary with values from the update dictionary.
-    Ensures that if the user's config is missing a new key, the default is preserved.
-    """
+    """Recursively updates the base dictionary with values from the update dictionary."""
     for key, value in update_dict.items():
         if isinstance(value, dict):
             base_dict_value = base_dict.get(key)
@@ -58,17 +55,20 @@ def deep_update(base_dict: Dict, update_dict: Dict) -> Dict:
 def load_config() -> Dict[str, Any]:
     """
     Loads config.json. 
-    - If missing: Creates it.
-    - If invalid: Backs up the bad file to .old and creates a fresh one.
-    - If valid but incomplete: Merges user values with defaults.
+    Handles missing file, corruption, and partial updates robustly.
     """
     config = DEFAULT_CONFIG.copy()
 
     # 1. Check if file exists
     if not CONFIG_FILE.exists():
         try:
-            with open(CONFIG_FILE, 'w') as f:
-                json.dump(DEFAULT_CONFIG, f, indent=4)
+            # Atomic write for initial config
+            with tempfile.NamedTemporaryFile('w', dir=str(BASE_DIR), delete=False) as tf:
+                json.dump(DEFAULT_CONFIG, tf, indent=4)
+                tf.flush()
+                os.fsync(tf.fileno())
+                temp_name = tf.name
+            os.replace(temp_name, CONFIG_FILE)
             print(f"Generated default configuration at {CONFIG_FILE}")
         except Exception as e:
             print(f"Error creating config file: {e}")
@@ -79,7 +79,7 @@ def load_config() -> Dict[str, Any]:
         with open(CONFIG_FILE, 'r') as f:
             user_config = json.load(f)
         
-        # Merge user config into defaults (handling missing keys safely)
+        # Merge user config into defaults
         config = deep_update(config, user_config)
 
     except json.JSONDecodeError:
@@ -90,8 +90,12 @@ def load_config() -> Dict[str, Any]:
             shutil.move(str(CONFIG_FILE), str(backup_path))
             print(f"Backed up corrupted config to {backup_path.name}")
             
-            with open(CONFIG_FILE, 'w') as f:
-                json.dump(DEFAULT_CONFIG, f, indent=4)
+            with tempfile.NamedTemporaryFile('w', dir=str(BASE_DIR), delete=False) as tf:
+                json.dump(DEFAULT_CONFIG, tf, indent=4)
+                tf.flush()
+                os.fsync(tf.fileno())
+                temp_name = tf.name
+            os.replace(temp_name, CONFIG_FILE)
             print("Regenerated clean config.json")
         except Exception as e:
             print(f"Failed to recover config: {e}")
@@ -105,7 +109,6 @@ def load_config() -> Dict[str, Any]:
 _cfg = load_config()
 
 # --- Expose Constants ---
-# We map the JSON values to the flat constants expected by the rest of the app.
 APP_NAME = _cfg['app_info']['name']
 APP_VERSION = _cfg['app_info']['version']
 GITHUB_API_URL = _cfg['app_info']['github_api_url']
@@ -120,7 +123,6 @@ MAX_HISTORY_ENTRIES = _cfg['data']['max_history_entries']
 MAX_WORKERS = _cfg['network']['max_workers']
 NETWORK_TIMEOUT = _cfg['network']['timeout']
 
-# Construct headers (User allows changing UA, but we enforce other headers)
 HEADERS = {
     'User-Agent': _cfg['network']['user_agent'],
     'Accept-Language': 'en-US,en;q=0.9',
@@ -130,8 +132,12 @@ HEADERS = {
 
 def ensure_dirs() -> None:
     """Ensures necessary directories exist."""
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        print(f"Fatal: Could not create necessary directories: {e}")
+        sys.exit(1)
 
 def setup_logging() -> None:
     """
@@ -163,14 +169,17 @@ def setup_logging() -> None:
     root_logger.setLevel(logging.INFO)
     
     # 1. File Handler
-    file_formatter = logging.Formatter(
-        '[%(asctime)s] [%(threadName)s/%(levelname)s] [%(filename)s:%(lineno)d]: %(message)s',
-        datefmt='%H:%M:%S'
-    )
-    file_handler = logging.FileHandler(log_file, encoding='utf-8')
-    file_handler.setFormatter(file_formatter)
-    root_logger.addHandler(file_handler)
-    
+    try:
+        file_formatter = logging.Formatter(
+            '[%(asctime)s] [%(threadName)s/%(levelname)s] [%(filename)s:%(lineno)d]: %(message)s',
+            datefmt='%H:%M:%S'
+        )
+        file_handler = logging.FileHandler(log_file, encoding='utf-8')
+        file_handler.setFormatter(file_formatter)
+        root_logger.addHandler(file_handler)
+    except IOError as e:
+        print(f"Failed to setup file logging: {e}")
+
     # 2. Console Handler
     console_formatter = logging.Formatter(
         '[%(asctime)s] [%(levelname)s]: %(message)s',

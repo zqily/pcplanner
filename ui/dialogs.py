@@ -68,8 +68,8 @@ class ComponentDialog(QDialog):
 
     def get_data(self) -> Dict[str, Any]:
         return {
-            "name": self.name_input.text(),
-            "link": self.link_input.text(),
+            "name": self.name_input.text().strip(),
+            "link": self.link_input.text().strip(),
             "specs": self.specs_input.toPlainText(),
             "quantity": self.quantity_input.value()
         }

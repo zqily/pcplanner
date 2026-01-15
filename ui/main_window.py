@@ -251,7 +251,11 @@ class PCPlanner(QMainWindow):
         data = {"profile_name": name, "data": self.data_manager.get_active_profile_data()}
         fpath, _ = QFileDialog.getSaveFileName(self, "Export", f"{name}.json", "JSON (*.json)")
         if fpath:
-            with open(fpath, 'w') as f: json.dump(data, f, indent=4)
+            try:
+                with open(fpath, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, indent=4)
+            except IOError as e:
+                QMessageBox.critical(self, "Export Failed", str(e))
 
     # --- Table/Item Logic ---
     def populate_tables(self) -> None:

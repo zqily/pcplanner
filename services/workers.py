@@ -3,6 +3,7 @@ import os
 import requests
 import concurrent.futures
 import logging
+import tempfile
 from typing import List, Dict, Optional
 from PyQt6.QtCore import QObject, QThread, pyqtSignal
 
@@ -11,8 +12,6 @@ from core.scraper import scrape_tokopedia
 
 # Get module logger
 logger = logging.getLogger(__name__)
-
-# --- Scraping Service ---
 
 class ScrapeWorker(QObject):
     finished = pyqtSignal()
@@ -30,24 +29,51 @@ class ScrapeWorker(QObject):
         hashed = hashlib.sha256(url.encode('utf-8')).hexdigest()
         return str(CACHE_DIR / f"{hashed}.jpg")
 
+    def _save_image_atomic(self, path: str, data: bytes) -> None:
+        """Saves image data to path atomically."""
+        try:
+            dirname = os.path.dirname(path)
+            # Create a temp file in the same directory
+            with tempfile.NamedTemporaryFile('wb', dir=dirname, delete=False) as tf:
+                tf.write(data)
+                tf.flush()
+                os.fsync(tf.fileno())
+                temp_name = tf.name
+            
+            # Atomic rename
+            os.replace(temp_name, path)
+        except Exception as e:
+            logger.error(f"Failed to save image to cache: {e}")
+            # Try to cleanup temp file if it exists
+            if 'temp_name' in locals() and os.path.exists(temp_name):
+                try:
+                    os.remove(temp_name)
+                except OSError:
+                    pass
+
     def _get_image_bytes(self, image_url: Optional[str], session: requests.Session) -> Optional[bytes]:
         if not image_url or not self.is_running:
             return None
         
         cache_path = self._get_cache_path(image_url)
+        
+        # Check cache first
         if os.path.exists(cache_path):
             try:
                 with open(cache_path, 'rb') as f:
                     return f.read()
             except IOError:
-                pass
+                logger.warning(f"Failed to read cache file {cache_path}, re-downloading.")
 
+        # Download
         try:
             resp = session.get(image_url, timeout=10)
             resp.raise_for_status()
             data = resp.content
-            with open(cache_path, 'wb') as f:
-                f.write(data)
+            
+            # Save to cache
+            self._save_image_atomic(cache_path, data)
+            
             return data
         except Exception as e:
             logger.warning(f"Failed to download image from {image_url}: {e}")
@@ -55,13 +81,10 @@ class ScrapeWorker(QObject):
 
     def _task(self, link: str, session: requests.Session) -> tuple:
         # This runs inside the thread pool
-        try:
-            price, img_url = scrape_tokopedia(link, session=session)
-            img_bytes = self._get_image_bytes(img_url, session)
-            return price, img_url, img_bytes
-        except Exception:
-            # Re-raise to be caught in run() via future.result()
-            raise
+        # We do not catch exceptions here so that the future.result() call raises them
+        price, img_url = scrape_tokopedia(link, session=session)
+        img_bytes = self._get_image_bytes(img_url, session)
+        return price, img_url, img_bytes
 
     def run(self) -> None:
         if not self.tasks:
@@ -72,8 +95,10 @@ class ScrapeWorker(QObject):
         self.scraping_started.emit(len(self.tasks))
         completed = 0
 
+        # Create session once for reuse (connection pooling)
         with requests.Session() as session:
             session.headers.update(HEADERS)
+            
             with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
                 # Map future to task info
                 futures = {
@@ -84,6 +109,7 @@ class ScrapeWorker(QObject):
                 for future in concurrent.futures.as_completed(futures):
                     if not self.is_running:
                         logger.info("Scraping cancelled by user.")
+                        # We cannot brutally stop threads, but we stop processing results
                         break
                     
                     info = futures[future]
@@ -166,8 +192,6 @@ class ScrapeManager(QObject):
             self.worker_thread.wait()
         self.worker = None
         self.worker_thread = None
-
-# --- Update Service ---
 
 class UpdateCheckWorker(QObject):
     update_available = pyqtSignal(dict)

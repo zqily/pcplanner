@@ -10,14 +10,20 @@ def excepthook(exc_type, exc_value, exc_tb):
     """Global exception handler to catch crashes."""
     tb = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
     logging.critical("Uncaught exception:\n" + tb)
-    print("Critical Error! Check logs for details.")
+    # Print to stderr as well for console visibility
+    print("Critical Error! Check logs for details.", file=sys.stderr)
     sys.__excepthook__(exc_type, exc_value, exc_tb)
 
 def main():
     sys.excepthook = excepthook
     
-    ensure_dirs()
-    setup_logging()
+    # robust setup
+    try:
+        ensure_dirs()
+        setup_logging()
+    except Exception as e:
+        print(f"Critical initialization failure: {e}", file=sys.stderr)
+        sys.exit(1)
     
     # Run data migration if needed
     try:
@@ -28,8 +34,12 @@ def main():
 
     try:
         app = QApplication(sys.argv)
+        # Set app metadata
+        app.setApplicationName("PC Planner")
+        
         window = PCPlanner()
         window.show()
+        
         sys.exit(app.exec())
     except Exception as e:
         logging.critical(f"Application crash: {e}", exc_info=True)

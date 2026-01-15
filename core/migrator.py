@@ -1,110 +1,69 @@
-import json
-import uuid
-import logging
-import shutil
 from datetime import datetime
-from sqlalchemy.orm import Session
-from config import DATA_FILE, DB_FILE
-from core.database import SessionLocal, init_db
-from core.models import Profile, Item, PriceHistory
+from typing import List
+from sqlalchemy import Integer, String, ForeignKey, Text, DateTime
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from core.database import Base
 
-logger = logging.getLogger(__name__)
+class Profile(Base):
+    __tablename__ = "profiles"
 
-class Migrator:
-    """Handles migration from JSON file to SQLite database."""
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    items: Mapped[List["Item"]] = relationship("Item", back_populates="profile", cascade="all, delete-orphan")
+
+    def __repr__(self):
+        return f"<Profile(name='{self.name}')>"
+
+class Item(Base):
+    __tablename__ = "items"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)  # UUID Hex
+    profile_id: Mapped[int] = mapped_column(ForeignKey("profiles.id"), nullable=False)
+    category: Mapped[str] = mapped_column(String, nullable=False)  # 'components' or 'peripherals'
     
-    @staticmethod
-    def run_migration() -> None:
-        if not DATA_FILE.exists():
-            return
-            
-        if DB_FILE.exists():
-            # If DB exists, we assume migration happened or it's a fresh DB install.
-            # We won't re-import json unless DB is size 0.
-            if DB_FILE.stat().st_size > 0:
-                return
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    link: Mapped[str] = mapped_column(String, default="")
+    specs: Mapped[str] = mapped_column(Text, default="")
+    image_url: Mapped[str] = mapped_column(String, default="")
+    
+    quantity: Mapped[int] = mapped_column(Integer, default=1)
+    current_price: Mapped[int] = mapped_column(Integer, default=0)
+    previous_price: Mapped[int] = mapped_column(Integer, default=0)
+    
+    order_index: Mapped[int] = mapped_column(Integer, default=0)
 
-        logger.info("Starting migration from JSON to SQLite...")
-        
-        # Initialize tables
-        init_db()
-        
-        try:
-            with open(DATA_FILE, 'r') as f:
-                data = json.load(f)
-        except (json.JSONDecodeError, IOError) as e:
-            logger.error(f"Failed to read legacy data file: {e}")
-            return
+    profile: Mapped["Profile"] = relationship("Profile", back_populates="items")
+    price_history: Mapped[List["PriceHistory"]] = relationship("PriceHistory", back_populates="item", cascade="all, delete-orphan")
 
-        session: Session = SessionLocal()
-        
-        try:
-            # 1. Handle Profiles
-            profiles_data = data.get("profiles", {})
-            active_profile_name = data.get("active_profile", "Default Profile")
-            
-            # Ensure "Default Profile" exists if dict is empty/malformed
-            if not profiles_data:
-                profiles_data = {"Default Profile": {"components": [], "peripherals": []}}
+    def to_dict(self) -> dict:
+        """Converts model to a dictionary compatible with the UI."""
+        return {
+            "id": self.id,
+            "category": self.category,
+            "name": self.name,
+            "link": self.link,
+            "specs": self.specs,
+            "image_url": self.image_url,
+            "quantity": self.quantity,
+            "price": self.current_price,
+            "previous_price": self.previous_price,
+            "order_index": self.order_index
+        }
 
-            for p_name, p_content in profiles_data.items():
-                profile = Profile(name=p_name)
-                session.add(profile)
-                session.flush() # Flush to get profile.id
-                
-                # 2. Handle Items
-                for category in ["components", "peripherals"]:
-                    items_list = p_content.get(category, [])
-                    for idx, item_dict in enumerate(items_list):
-                        # Basic fields
-                        item_id = item_dict.get('id', uuid.uuid4().hex)
-                        current_price = item_dict.get('price', 0)
-                        
-                        # History Logic
-                        raw_history = item_dict.get('price_history', [])
-                        
-                        # Calculate previous price from history if available
-                        prev_price = 0
-                        if len(raw_history) >= 2:
-                            prev_price = raw_history[-2].get('price', 0)
-                        
-                        item = Item(
-                            id=item_id,
-                            profile_id=profile.id,
-                            category=category,
-                            name=item_dict.get('name', 'Unknown'),
-                            link=item_dict.get('link', ''),
-                            specs=item_dict.get('specs', ''),
-                            image_url=item_dict.get('image_url', ''),
-                            quantity=item_dict.get('quantity', 1),
-                            current_price=current_price,
-                            previous_price=prev_price,
-                            order_index=idx
-                        )
-                        session.add(item)
-                        
-                        # 3. Handle History
-                        for h_entry in raw_history:
-                            ph = PriceHistory(
-                                item_id=item_id,
-                                date=h_entry.get('date', datetime.now().date().isoformat()),
-                                price=h_entry.get('price', 0)
-                            )
-                            session.add(ph)
+class PriceHistory(Base):
+    __tablename__ = "price_history"
 
-            session.commit()
-            logger.info("Migration completed successfully.")
-            
-            # Backup old file
-            backup_path = DATA_FILE.with_suffix('.json.bak')
-            shutil.move(str(DATA_FILE), str(backup_path))
-            logger.info(f"Renamed legacy data file to {backup_path.name}")
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    item_id: Mapped[str] = mapped_column(ForeignKey("items.id"), index=True)
+    date: Mapped[str] = mapped_column(String, nullable=False)  # ISO Format YYYY-MM-DD
+    price: Mapped[int] = mapped_column(Integer, nullable=False)
 
-        except Exception as e:
-            session.rollback()
-            logger.error(f"Migration failed: {e}", exc_info=True)
-            # Delete the potentially corrupted DB file
-            if DB_FILE.exists():
-                DB_FILE.unlink()
-        finally:
-            session.close()
+    item: Mapped["Item"] = relationship("Item", back_populates="price_history")
+
+    def to_dict(self) -> dict:
+        return {
+            "date": self.date,
+            "price": self.price
+        }
