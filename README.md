@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/Syntax-Free/multiyt-dlp/main/public/logo.png" alt="Syntax Free Logo" width="200"/>
+<img src="/.github/assets/pcplanner.webp" alt="PC Planner Logo" width="200"/>
 
 # PC Planner
 ### "Because spreadsheets are for accountants, and I suck at math."
