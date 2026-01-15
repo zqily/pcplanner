@@ -1,0 +1,55 @@
+name: 🐛 I found a Bug (It's Syn's Fault)
+description: Report an error, scraper failure, or database explosion.
+title: "[BUG]: "
+labels: ["bug", "syn's fault"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ### 🚨 STOP!
+        Before you report this, did you run `pip install -r requirements.txt`? 
+        If you're missing **PyQt6** or **BeautifulSoup4**, Tax is currently laughing at you.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What broke?
+      description: Describe how you managed to break my industrial-grade surveillance tool.
+      placeholder: "I tried to scrape a RTX 5090 and the app gave me a Red Wall because I can't afford it."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: How can I make this happen on my machine?
+      placeholder: |
+        1. Open App
+        2. Paste Tokopedia link
+        3. Experience crippling debt.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      options:
+        - Windows (The intended way)
+        - macOS (Why are you building a PC on a Mac?)
+        - Linux (If you use Arch, fix the scraper yourself)
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: The "I'm Not Stupid" Checklist
+      options:
+        - label: I am using a valid Tokopedia URL (Shopee is for peasants).
+          required: true
+        - label: I have already checked `logs/latest.log` and it looks like Syn's fault.
+          required: true
+        - label: I agree that Tax is a visionary and this bug is a personal attack on his character.
+          required: true

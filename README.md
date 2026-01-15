@@ -1,96 +1,85 @@
+<div align="center">
+
+<img src="https://raw.githubusercontent.com/Syntax-Free/multiyt-dlp/main/public/logo.png" alt="Syntax Free Logo" width="200"/>
+
 # PC Planner
+### "Because spreadsheets are for accountants, and I suck at math."
 
-![GitHub language count](https://img.shields.io/github/languages/count/zqily/pcplanner)
-![GitHub top language](https://img.shields.io/github/languages/top/zqily/pcplanner?style=flat&logo=python&logoColor=white&color=306998)
+<img src="https://img.shields.io/badge/Language-Python-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python" />
+<img src="https://img.shields.io/badge/GUI-PyQt6-41CD52?style=for-the-badge&logo=qt&logoColor=white" alt="PyQt6" />
+<img src="https://img.shields.io/badge/Database-SQLAlchemy-D71F00?style=for-the-badge&logo=sqlalchemy&logoColor=white" alt="SQLAlchemy" />
+<br/>
+<img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License" />
+<img src="https://img.shields.io/badge/Architecture-Vibe%20Coded-blueviolet?style=flat-square" alt="Vibe Coded" />
 
-An automated PC build planner that scrapes live prices from Tokopedia to keep your dream build up-to-date, saving hours of manual calculations.
+<p align="center">
+  <b>PC Planner</b> is the "Surveillance Arm" of the build process. 
+  <br />
+  It monitors the market so you don't have to experience the manual labor of "updating a spreadsheet."
+</p>
 
-<img width="1195" height="824" alt="pcplanner" src="https://github.com/user-attachments/assets/00e82727-b8ac-468a-99a0-c68f9f9afbb1" />
+> **Syn:** `he called it 'industrial grade' because it uses a database instead of a text file.`
 
----
-
-## About The Project
-
-I was planning a new PC build and grew tired of the tedious, repetitive chore of checking component prices every few days. Manually visiting half a dozen product pages, copying the new prices into a spreadsheet, and recalculating the total cost was a massive headache.
-
-This project was built to solve that exact problem.
-
-The PC Planner is a simple but effective Python application with a clean GUI. You input the Tokopedia links for your desired components, and with a single click, it scrapes the live name and price for every item, instantly updating your total build cost. What used to be a 15-minute chore is now a 5-second task.
-
-### Key Features
-
--   **💰 Live Price Scraping:** Automatically fetches the latest item names and prices from any valid Tokopedia URL.
--   **⚡ Multi-threaded Performance:** Scrapes all component pages concurrently, making the update process fast and efficient.
--   **📋 Organized Layout:** A clean UI with separate tabs for core PC components and peripherals.
--   **📊 Automatic Totals:** The total cost of the build is calculated and displayed in real-time.
--   **💾 Persistent Data:** Your list of links is automatically saved and loaded between sessions.
-
-### Built With
-
--   [Python](https://www.python.org/)
--   [PyQt6](https://riverbankcomputing.com/software/pyqt/) for the GUI
--   [BeautifulSoup4](https://www.crummy.com/software/BeautifulSoup/) for web scraping
+</div>
 
 ---
 
-## Getting Started
+## ⚡ The Vision
 
-To get a local copy up and running, follow these simple steps.
+### 🕵️‍♂️ Financial Surveillance (Scraping)
+*   **Targeted Acquisition:** Specifically tuned for Tokopedia. Why? Because Shopee’s anti-bot measures require "effort," and effort is against the Syntax Free Manifesto.
+*   **Multi-threaded Greed:** Scrapes every component simultaneously. If Tokopedia thinks it's a DDoS attack, that's just a compliment to my efficiency.
+*   **Automatic Image Extraction:** It grabs the pixels so you can stare at the GPU you can't afford in 4K.
+> **Syn:** `he's been planning the pc for 2 years, but don't have the money for it yet. likely ever.`
 
-### Prerequisites
+### 🏛️ The "Robust" Backend (SQL Migration)
+*   **Legacy is Dead:** We moved from `data.json` to **SQLite**. Why? because it's robust as hell and AI can code it.
+*   **Atomic Persistence:** Your builds are stored with transactional integrity. If the app crashes (it won't), your data survives the wreckage.
+*   **Migrator Engine:** Built a custom bridge to move your old "peasant" JSON data into the SQL empire.
 
-Make sure you have Python 3.x and pip installed on your system.
+### 📈 The Depression Curve (Analytics)
+*   **Price History:** Tracks every fluctuation. Watch your dream build get more expensive in real-time.
+> **Syn:** `went up from 30m to 37m in 2 years.`
+*   **Matplotlib Integration:** Visualizing my financial ruin with high-fidelity graphs.
+*   **Delta Tracking:** Green arrows for hope, Red arrows for reality.
 
--   **Python**
-    ```sh
-    python --version
-    ```
+---
 
-### Installation
+## 📦 Deployment Protocol
 
-1.  **Clone the repository**
-    ```sh
+### 📥 The "I Value My Keyboard" Method
+Download the pre-compiled `.exe` and pretend you know how the code works.
+👉 **[Download Latest Release](../../releases)**
+
+### 🏗️ The "Free Labor" Method (Build from Source)
+If you see a bug, don't tell me. Submit a Pull Request. I accept all free labor.
+
+1.  **Clone the Repo**
+    ```bash
     git clone https://github.com/zqily/pcplanner.git
-    cd pcplanner
     ```
-
-2.  **Install the required packages**
-    A `requirements.txt` file is included for easy installation.
-    ```sh
+2.  **Install the "Heavy Lifting"**
+    ```bash
     pip install -r requirements.txt
     ```
-
-3.  **Run the application**
-    ```sh
+3.  **Initiate the Vision**
+    ```bash
     python main.py
     ```
 
 ---
 
-## Usage
+## 🛠️ The Tech Stack
 
-1.  Launch the application.
-2.  Navigate to either the `PC Components` or `Peripherals` tab.
-3.  Click "Add Item" on the top right corner of the window.
-4.  Paste the full Tokopedia product URL into the input field next to it, and add optional name and specs of the item, and click "OK"
-5.  Repeat for all the parts you want to track. Your data will be saved automatically.
-7.  The application will fetch the latest data and update the "Item Name," "Price," and "Total" fields.
-
----
-
-## Limitations & Technical Notes
-
--   **Tokopedia Only:** This scraper is specifically designed for **Tokopedia** product pages and will not work with other e-commerce sites like Amazon or Shopee.
--   **Scraping Approach:** I initially attempted to add Shopee support, but their anti-bot measures proved too robust for a simple implementation. I also experimented with more advanced libraries like Playwright, but found they were surprisingly detected and blocked by Tokopedia. The simpler, classic combination of `requests` and `BeautifulSoup4` worked flawlessly and was more than fast enough for this use case.
+*   **Architect:** Gemini 3 Pro (The Brain)
+*   **Project Lead:** **Tax** (The Ego)
+*   **Technical Truth:** **Syn** (The Victim)
+*   **Foundations:** Python 3.12.x (mine's 3.12.10) / PyQt6 / BeautifulSoup4
+*   **Storage:** SQLAlchemy / SQLite
 
 ---
 
-## License
-
-Distributed under the MIT License. See `LICENSE` file for more information.
-
----
-
-## Contact
-
-zqil - [My Website](https://zqil.net)
+<div align="center">
+  <p><b>Part of the Syntax Free Suite.</b></p>
+  <sub>"Subscribe to retire your keyboard."</sub>
+</div>

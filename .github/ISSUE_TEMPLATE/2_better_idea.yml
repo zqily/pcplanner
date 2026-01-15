@@ -1,0 +1,36 @@
+name: 💡 I have a better idea than Tax
+description: Suggest a new feature or improvement for the build planner.
+title: "[FEATURE]: "
+labels: ["enhancement", "presumptuous"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ### 🧠 The Idea Box
+        Tax usually ignores these because his vision is perfect, but if your idea helps him retire his keyboard faster, he might steal it.
+
+  - type: textarea
+    id: pitch
+    attributes:
+      label: The Pitch
+      description: What do you want the app to do?
+      placeholder: "Add a button that automatically buys the parts when the price drops..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why?
+      description: Why is the current SQLite-powered masterpiece not good enough for you?
+      placeholder: "Because I want to visualize my debt in 3D..."
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: agreement
+    attributes:
+      label: Terms of Service
+      options:
+        - label: I understand that if I implement this myself via PR, Tax will likely claim he built it.
+          required: true
