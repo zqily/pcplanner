@@ -16,13 +16,13 @@ CACHE_DIR = BASE_DIR / 'image_cache'
 LOGS_DIR = BASE_DIR / 'logs'
 CONFIG_FILE = BASE_DIR / 'config.json'
 
+# --- App Constants ---
+APP_NAME = "PC Planner"
+APP_VERSION = "v1.3.0"
+GITHUB_API_URL = "https://api.github.com/repos/zqily/pcplanner/releases/latest"
+
 # --- Default Configuration ---
 DEFAULT_CONFIG = {
-    "app_info": {
-        "name": "PC Planner",
-        "version": "v1.3.0",
-        "github_api_url": "https://api.github.com/repos/zqily/pcplanner/releases/latest"
-    },
     "window": {
         "width": 1280,
         "height": 850,
@@ -109,10 +109,6 @@ def load_config() -> Dict[str, Any]:
 _cfg = load_config()
 
 # --- Expose Constants ---
-APP_NAME = _cfg['app_info']['name']
-APP_VERSION = _cfg['app_info']['version']
-GITHUB_API_URL = _cfg['app_info']['github_api_url']
-
 WINDOW_WIDTH = _cfg['window']['width']
 WINDOW_HEIGHT = _cfg['window']['height']
 IMAGE_COLUMN_WIDTH = _cfg['window']['image_column_width']
