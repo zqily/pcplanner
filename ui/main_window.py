@@ -346,6 +346,10 @@ class PCPlanner(QMainWindow):
             """
             price_lbl = QLabel(rich_text)
             price_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            
+            # Explicitly remove the underlying text item so it doesn't show behind the label
+            table.setItem(row, 2, None)
+            
             table.setCellWidget(row, 2, price_lbl)
         else:
             table.removeCellWidget(row, 2)
