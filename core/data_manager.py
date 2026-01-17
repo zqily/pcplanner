@@ -1,6 +1,7 @@
 import uuid
 import logging
 import datetime
+import re
 from typing import Dict, List, Optional, Tuple, Any
 from PyQt6.QtCore import QObject, pyqtSignal
 from sqlalchemy import select, delete, func
@@ -28,7 +29,6 @@ class DataManager(QObject):
         try:
             init_db()
         except Exception:
-            # Fatal error handled in init_db logging/raise, but we can't proceed
             pass
         
         # Load initial state
@@ -52,6 +52,29 @@ class DataManager(QObject):
                     self.active_profile_name = "Default Profile"
             except Exception as e:
                 logger.error(f"Failed to init profile: {e}")
+
+    # --- Helpers for Robustness ---
+
+    def _safe_int(self, value: Any, default: int = 0) -> int:
+        """Safely converts any value to int, handling strings with non-numeric chars."""
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float):
+            return int(value)
+        if not value:
+            return default
+        try:
+            # Remove non-digit characters (e.g., "Rp 5.000" -> "5000")
+            clean_str = re.sub(r'[^\d]', '', str(value))
+            return int(clean_str) if clean_str else default
+        except (ValueError, TypeError):
+            return default
+
+    def _sanitize_str(self, value: Any, default: str = "") -> str:
+        """Ensures value is a string and not None."""
+        if value is None:
+            return default
+        return str(value).strip()
 
     # --- Profile Management ---
 
@@ -165,76 +188,124 @@ class DataManager(QObject):
         self.profiles_changed.emit()
         return True, ""
 
-    def import_profile_data(self, profile_name: str, data: Dict[str, Any]) -> Tuple[bool, str]:
+    def import_profile_data(self, profile_name: str, raw_data: Any) -> Tuple[bool, str]:
         """
-        Imports profile data from a dictionary structure (JSON export).
-        Handles creation of items and history.
+        Robustly imports profile data.
+        1. Generates FRESH IDs for everything (avoids UNIQUE constraint errors).
+        2. Sanitizes input types (handles string-encoded prices, etc.).
+        3. Handles legacy (list) vs new (dict) structures.
         """
         with SessionLocal() as session:
             try:
-                # 1. Create or Find Profile (handle name collision by appending copy)
-                target_name = profile_name
+                # --- 1. Resolve Profile Name Collision ---
+                target_name = self._sanitize_str(profile_name, "Imported Profile")
                 counter = 1
+                base_name = target_name
                 while session.execute(select(Profile).where(Profile.name == target_name)).scalar_one_or_none():
-                    target_name = f"{profile_name} ({counter})"
+                    target_name = f"{base_name} ({counter})"
                     counter += 1
                 
                 new_profile = Profile(name=target_name)
                 session.add(new_profile)
-                session.flush() # Get ID
+                session.flush() # Flush to get new_profile.id
 
-                # 2. Parse Items
-                categories = ["components", "peripherals"]
-                if isinstance(data, list):
-                    # Legacy support: if root is list, assume components
-                    data = {"components": data, "peripherals": []}
+                # --- 2. Normalize Input Structure ---
+                # Ensure data_map is {category: [items]}
+                data_map = {}
                 
-                for cat in categories:
-                    items = data.get(cat, [])
-                    for idx, item_dict in enumerate(items):
-                        item_id = item_dict.get('id') or uuid.uuid4().hex
-                        current_price = item_dict.get('price', 0)
+                if isinstance(raw_data, list):
+                    # Legacy: Root is a list of components
+                    data_map = {"components": raw_data, "peripherals": []}
+                elif isinstance(raw_data, dict):
+                    # Standard: Check keys
+                    if "components" in raw_data or "peripherals" in raw_data:
+                        data_map = raw_data
+                    else:
+                        data_map = {
+                            "components": raw_data.get("components", []),
+                            "peripherals": raw_data.get("peripherals", [])
+                        }
+                else:
+                    return False, "Invalid data format (must be JSON Object or Array)."
+
+                # --- 3. Process Items ---
+                valid_categories = ["components", "peripherals"]
+                
+                for cat in valid_categories:
+                    items_list = data_map.get(cat)
+                    if not isinstance(items_list, list):
+                        continue
+
+                    for idx, item_dict in enumerate(items_list):
+                        if not isinstance(item_dict, dict):
+                            continue
+
+                        # Generate FRESH ID to prevent IntegrityError
+                        new_item_id = uuid.uuid4().hex
                         
-                        # Determine previous price
+                        # Sanitize basic fields
+                        name = self._sanitize_str(item_dict.get('name'), "Imported Item")
+                        link = self._sanitize_str(item_dict.get('link'))
+                        specs = self._sanitize_str(item_dict.get('specs'))
+                        img_url = self._sanitize_str(item_dict.get('image_url'))
+                        
+                        qty = self._safe_int(item_dict.get('quantity'), 1)
+                        current_price = self._safe_int(item_dict.get('price'), 0)
+                        
+                        # Handle History & Previous Price
                         raw_history = item_dict.get('price_history', [])
+                        if not isinstance(raw_history, list):
+                            raw_history = []
+                            
+                        # Determine prev price safely
                         prev_price = 0
                         if len(raw_history) >= 2:
-                            prev_price = raw_history[-2].get('price', 0)
+                            prev_price = self._safe_int(raw_history[-2].get('price'), 0)
+                        elif 'previous_price' in item_dict:
+                            # Fallback if history missing but prev_price stored
+                            prev_price = self._safe_int(item_dict['previous_price'], 0)
 
-                        item = Item(
-                            id=item_id,
+                        item_obj = Item(
+                            id=new_item_id,
                             profile_id=new_profile.id,
                             category=cat,
-                            name=item_dict.get('name', 'Imported Item'),
-                            link=item_dict.get('link', ''),
-                            specs=item_dict.get('specs', ''),
-                            image_url=item_dict.get('image_url', ''),
-                            quantity=item_dict.get('quantity', 1),
+                            name=name,
+                            link=link,
+                            specs=specs,
+                            image_url=img_url,
+                            quantity=qty,
                             current_price=current_price,
                             previous_price=prev_price,
                             order_index=idx
                         )
-                        session.add(item)
+                        session.add(item_obj)
 
-                        # 3. Parse History
-                        for h in raw_history:
+                        # Import History with FRESH ID
+                        for h_entry in raw_history:
+                            if not isinstance(h_entry, dict): 
+                                continue
+                            
+                            h_date = self._sanitize_str(h_entry.get('date'), datetime.date.today().isoformat())
+                            h_price = self._safe_int(h_entry.get('price'), 0)
+                            
                             ph = PriceHistory(
-                                item_id=item_id,
-                                date=h.get('date', datetime.date.today().isoformat()),
-                                price=h.get('price', 0)
+                                item_id=new_item_id,
+                                date=h_date,
+                                price=h_price
                             )
                             session.add(ph)
 
                 session.commit()
+            
             except Exception as e:
                 session.rollback()
-                logger.error(f"Import failed: {e}", exc_info=True)
-                return False, str(e)
+                logger.error(f"Import failed critical: {e}", exc_info=True)
+                return False, f"Database Error: {str(e)}"
         
-        # Update local state
+        # Success: Update state
         self.active_profile_name = target_name
         self.profiles_changed.emit()
-        return True, f"Imported as '{target_name}'"
+        return True, f"Successfully imported as '{target_name}'"
 
     # --- Item Management ---
 
@@ -257,18 +328,19 @@ class DataManager(QObject):
                 new_idx = (max_idx if max_idx is not None else -1) + 1
 
                 # Prepare data
-                price = item_data.get('price', 0)
+                price = self._safe_int(item_data.get('price'), 0)
+                # Generate ID locally if not provided
                 item_id = item_data.get('id') or uuid.uuid4().hex
                 
                 new_item = Item(
                     id=item_id,
                     profile_id=profile.id,
                     category=category,
-                    name=item_data.get('name', 'New Item'),
-                    link=item_data.get('link', ''),
-                    specs=item_data.get('specs', ''),
-                    image_url=item_data.get('image_url', ''),
-                    quantity=item_data.get('quantity', 1),
+                    name=self._sanitize_str(item_data.get('name'), 'New Item'),
+                    link=self._sanitize_str(item_data.get('link')),
+                    specs=self._sanitize_str(item_data.get('specs')),
+                    image_url=self._sanitize_str(item_data.get('image_url')),
+                    quantity=self._safe_int(item_data.get('quantity'), 1),
                     current_price=price,
                     order_index=new_idx
                 )
@@ -298,11 +370,11 @@ class DataManager(QObject):
                     return
                 
                 # Conditionally update fields if present in input dict
-                if 'name' in item_data: item.name = item_data['name']
-                if 'link' in item_data: item.link = item_data['link']
-                if 'specs' in item_data: item.specs = item_data['specs']
-                if 'quantity' in item_data: item.quantity = item_data['quantity']
-                if 'image_url' in item_data: item.image_url = item_data['image_url']
+                if 'name' in item_data: item.name = self._sanitize_str(item_data['name'])
+                if 'link' in item_data: item.link = self._sanitize_str(item_data['link'])
+                if 'specs' in item_data: item.specs = self._sanitize_str(item_data['specs'])
+                if 'quantity' in item_data: item.quantity = self._safe_int(item_data['quantity'])
+                if 'image_url' in item_data: item.image_url = self._sanitize_str(item_data['image_url'])
                 
                 session.commit()
             except Exception as e:

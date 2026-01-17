@@ -3,6 +3,7 @@ import uuid
 import json
 import webbrowser
 import logging
+from datetime import datetime
 from functools import partial
 from typing import Dict, Optional, List
 
@@ -224,16 +225,17 @@ class PCPlanner(QMainWindow):
             with open(fpath, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             
-            # Identify profile name and content
-            if "profile_name" in data and "data" in data:
-                # Format: Single profile export
-                p_name = data["profile_name"]
-                p_data = data["data"]
-            else:
-                # Format: Legacy data or direct dict
-                p_name = "Imported Profile"
-                p_data = data
-
+            # Determine logic based on structure
+            p_name = "Imported Profile"
+            p_data = data
+            
+            # Check for exported metadata structure
+            if isinstance(data, dict):
+                if "profile_name" in data and "data" in data:
+                    p_name = data["profile_name"]
+                    p_data = data["data"]
+                # If structure is flat dict {components: []}, p_name remains default
+            
             # Use DataManager to safely import into SQL
             success, msg = self.data_manager.import_profile_data(p_name, p_data)
             
@@ -242,18 +244,43 @@ class PCPlanner(QMainWindow):
             else:
                 QMessageBox.critical(self, "Import Failed", msg)
                 
+        except json.JSONDecodeError:
+            QMessageBox.critical(self, "Error", "File is not a valid JSON file.")
         except Exception as e:
             logger.error(f"Import failed: {e}", exc_info=True)
-            QMessageBox.critical(self, "Error", f"Invalid file or corrupted data.\n{str(e)}")
+            QMessageBox.critical(self, "Error", f"An unexpected error occurred.\n{str(e)}")
 
     def export_profile(self):
         name = self.data_manager.active_profile_name
-        data = {"profile_name": name, "data": self.data_manager.get_active_profile_data()}
+        profile_items = self.data_manager.get_active_profile_data()
+        
+        # Hydrate items with full history for export
+        # We need to manually fetch history for every item to ensure the export is complete
+        export_data = {"components": [], "peripherals": []}
+        
+        for cat, items in profile_items.items():
+            for item in items:
+                # Get the full dict
+                item_copy = item.copy()
+                # Append history list
+                item_copy['price_history'] = self.data_manager.get_item_history(item['id'])
+                export_data[cat].append(item_copy)
+
+        final_export = {
+            "meta": {
+                "app_version": APP_VERSION,
+                "export_date": datetime.now().isoformat()
+            },
+            "profile_name": name,
+            "data": export_data
+        }
+
         fpath, _ = QFileDialog.getSaveFileName(self, "Export", f"{name}.json", "JSON (*.json)")
         if fpath:
             try:
                 with open(fpath, 'w', encoding='utf-8') as f:
-                    json.dump(data, f, indent=4)
+                    json.dump(final_export, f, indent=4)
+                QMessageBox.information(self, "Success", f"Profile exported to {fpath}")
             except IOError as e:
                 QMessageBox.critical(self, "Export Failed", str(e))
 
